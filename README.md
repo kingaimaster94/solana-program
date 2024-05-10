@@ -1,5 +1,17 @@
 # solana-program
 SPL Token, account, swap
+## dapp
+### generate-keypair
+@solana/web3.js, typescript
+#### create&build
+mkdir generate-keypair
+cd generate-keypair
+npm init -y
+npm install typescript @solana/web3.js esrun @solana-developers/helpers
+
+make generate-keypair.ts
+
+npx esrun generate-keypair.ts
 
 # from scratch to expert
 Solana program is composed of 2 fields: on-chain program and client-side program.
