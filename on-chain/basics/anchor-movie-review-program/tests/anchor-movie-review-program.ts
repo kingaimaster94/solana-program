@@ -1,81 +1,129 @@
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
-import { AnchorMovieReviewProgram } from "../target/types/anchor_movie_review_program";
-import { expect } from "chai";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { Program, web3 } from "@coral-xyz/anchor";
+import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getMint, getAssociatedTokenAddress, getAccount } from "@solana/spl-token";
+import { assert } from "chai";
 
+// Load the IDL
+const idl = require('../target/idl/anchor_movie_review_program.json');
 
-describe("anchor-movie-review-program", () => {
-  // Configure the client to use the local cluster.
-  anchor.setProvider(anchor.AnchorProvider.env());
+// Define the program ID from the declare_id macro
+const programID = new anchor.web3.PublicKey('8GV99fB3sYy2rNaQSACYHcgkcUFh3egcFtdkDrW49mL2');
 
-  const program = anchor.workspace.AnchorMovieReviewProgram as Program<AnchorMovieReviewProgram>;
+// Configure the local cluster.
+anchor.setProvider(anchor.AnchorProvider.env());
+const provider = anchor.getProvider();
+const connection = provider.connection;
 
-  const provider = anchor.getProvider();
+// Load the program
+const program = new Program(idl, programID, provider);
 
-  const wallet = provider.wallet;
-  const initializer = wallet.publicKey;
+// Function to find program-derived addresses (PDAs)
+async function findPDA(seed: Buffer) {
+  return await web3.PublicKey.findProgramAddress([seed], programID);
+}
 
-  const movie = {
-    title: "Just a test movie",
-    description: "Wow what a good movie it was real great",
-    rating: 5,
-  }
+describe("anchor_movie_review_program", () => {
+  const wallet = provider.wallet as anchor.Wallet;
+  let mintKey: anchor.web3.PublicKey;
+  let tokenAccount: anchor.web3.PublicKey;
 
-  const [moviePda, bump] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from(movie.title), wallet.publicKey.toBuffer()],
-    program.programId
-  )
+  it("Initializes the token mint", async () => {
+    const [mintPDA, mintBump] = await findPDA(Buffer.from("mint"));
+    mintKey = mintPDA;
 
-  it("Movie review is added!", async () => {
-    // Add your test here.
-    const tx = await program.methods
-      .addMovieReview(movie.title, movie.description, movie.rating)
-      .accounts({
-        movieReview: moviePda,
-        initializer,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-    console.log("Your transaction signature", tx);
-    const account = await program.account.movieAccountState.fetch(moviePda);
-    expect(account.title).to.equal(movie.title)
-    expect(account.rating).to.equal(movie.rating)
-    expect(account.description).to.equal(movie.description)
-    expect(account.reviewer.toBase58()).to.equal(provider.wallet.publicKey.toBase58())
+    await program.rpc.initializeTokenMint({
+      accounts: {
+        mint: mintPDA,
+        user: wallet.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        rent: web3.SYSVAR_RENT_PUBKEY,
+        systemProgram: web3.SystemProgram.programId,
+      },
+      signers: [],
+    });
+
+    const mintInfo = await getMint(connection, mintKey);
+    assert.ok(mintInfo.supply.toString() == 0);
+    assert.ok(mintInfo.decimals === 6);
   });
 
-  it("Movie review is updated!", async () => {
-    // Add your test here.
-    const newDescription = "Wow this is new"
-    const newRating = 4
+  it("Adds a movie review", async () => {
+    const title = "Inception";
+    const description = "Great Movie!";
+    const rating = 5;
 
-    const tx = await program.methods
-      .updateMovieReview(movie.title, newDescription, newRating)
-      .accounts({
-        movieReview: moviePda,
-        initializer,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-    console.log("Your transaction signature", tx);
-    const account = await program.account.movieAccountState.fetch(moviePda);
-    expect(account.title).to.equal(movie.title)
-    expect(account.rating).to.equal(newRating)
-    expect(account.description).to.equal(newDescription)
-    expect(account.reviewer.toBase58()).to.equal(wallet.publicKey.toBase58())
+    const [reviewPDA, reviewBump] = await web3.PublicKey.findProgramAddress([Buffer.from(title), wallet.publicKey.toBuffer()], programID);
+
+    // const [tokenAccountPDA, tokenAccountBump] = await findPDA(Buffer.from(wallet.publicKey.toString()));
+    tokenAccount = await getAssociatedTokenAddress(
+      mintKey,
+      wallet.publicKey,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+
+    await program.rpc.addMovieReview(title, description, rating, {
+      accounts: {
+        movieReview: reviewPDA,
+        initializer: wallet.publicKey,
+        systemProgram: web3.SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        mint: mintKey,
+        tokenAccount: tokenAccount,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        rent: web3.SYSVAR_RENT_PUBKEY,
+      },
+      signers: [],
+    });
+
+    const movieReviewAccount = await program.account.movieAccountState.fetch(reviewPDA);
+    assert.equal(movieReviewAccount.title, title);
+    assert.equal(movieReviewAccount.description, description);
+    assert.equal(movieReviewAccount.rating, rating);
   });
 
-  it("Deletes a movie review!", async () => {
-    // Add your test here.
-    const tx = await program.methods
-      .deleteMovieReview(movie.title)
-      .accounts({
-        movieReview: moviePda,
-        initializer,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-    console.log("Your transaction signature", tx);
+  it("Updates a movie review", async () => {
+    const title = "Inception";
+    const newDescription = "Mind-bending Movie!";
+    const newRating = 4;
+
+    const [reviewPDA, reviewBump] = await web3.PublicKey.findProgramAddress([Buffer.from(title), wallet.publicKey.toBuffer()], programID);
+
+    await program.rpc.updateMovieReview(title, newDescription, newRating, {
+      accounts: {
+        movieReview: reviewPDA,
+        initializer: wallet.publicKey,
+        systemProgram: web3.SystemProgram.programId,
+      },
+      signers: [],
+    });
+
+    const movieReviewAccount = await program.account.movieAccountState.fetch(reviewPDA);
+    assert.equal(movieReviewAccount.title, title);
+    assert.equal(movieReviewAccount.description, newDescription);
+    assert.equal(movieReviewAccount.rating, newRating);
+  });
+
+  it("Deletes a movie review", async () => {
+    const title = "Inception";
+
+    const [reviewPDA, reviewBump] = await web3.PublicKey.findProgramAddress([Buffer.from(title), wallet.publicKey.toBuffer()], programID);
+
+    await program.rpc.deleteMovieReview(title, {
+      accounts: {
+        movieReview: reviewPDA,
+        initializer: wallet.publicKey,
+        systemProgram: web3.SystemProgram.programId,
+      },
+      signers: [],
+    });
+
+    try {
+      await program.account.movieAccountState.fetch(reviewPDA);
+      assert.fail("Account should be closed");
+    } catch (err) {
+      assert.equal(err.message, "Account does not exist " + reviewPDA.toString());
+    }
   });
 });
