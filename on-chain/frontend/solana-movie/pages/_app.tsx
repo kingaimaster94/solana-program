@@ -5,7 +5,7 @@ import WalletContextProvider from '../components/WalletContextProvider'
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
-    <ChakraProvider>  
+    <ChakraProvider>
       <WalletContextProvider>
         <Component {...pageProps} />
       </WalletContextProvider>

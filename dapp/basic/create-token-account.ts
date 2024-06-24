@@ -13,6 +13,10 @@ console.log(
     `🔑 Loaded our keypair securely, using an env file! Our public key is: ${user.publicKey.toBase58()}`
 );
 
+console.log(
+    `🔑 Loaded our keypair securely, using an env file! Our private key is: ${user.secretKey}`
+);
+
 // Subtitute in your token mint account from create-token-mint.ts
 const tokenMintAccount = new PublicKey(
     "AYYytURTFpFhrMvYu87ht4HsY5kKddU3Z5nJ4FzKPdnQ"
